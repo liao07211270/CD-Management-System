@@ -92,6 +92,13 @@ class FileSearchApp:
             "光碟片內容"
         ]
         
+        self.year_search_data = []  # 儲存年份搜尋結果
+        self.current_page = 0  # 當前頁碼
+        self.items_per_page = 2  # 每頁顯示2筆資料
+        self.selected_files = set()  # 儲存被選中的檔案索引
+        self.year_result_frame = None  # 年份搜尋結果框架
+        
+        
         # 創建主框架
         self.setup_ui()
 
@@ -308,6 +315,17 @@ class FileSearchApp:
         # 按鈕框架 - 放在右側
         button_frame = tk.Frame(title_container, bg='#f8f9fa')
         button_frame.pack(side='right', pady=10)
+        
+        # 指定年份查閱按鈕（新增這個）
+        year_search_btn = tk.Button(button_frame, text="📅 指定年份查閱", 
+                                    command=self.open_year_search_window,
+                                    bg='#007bff', fg='white', 
+                                    font=("Microsoft YaHei", 9, "bold"),
+                                    width=12, height=1,
+                                    cursor='hand2',
+                                    relief='flat',
+                                    bd=1)
+        year_search_btn.pack(side='left', padx=(0, 5))
         
         # 路徑設定按鈕
         path_setting_btn = tk.Button(button_frame, text="🔧 路徑設定", 
@@ -1738,6 +1756,1146 @@ class FileSearchApp:
         else:
             messagebox.showerror("錯誤", "無法找到資料夾路徑信息")
 
+    # ==================== 指定年份查閱功能 ====================
+    
+    def open_year_search_window(self):
+        """開啟指定年份查閱視窗"""
+        from datetime import datetime
+        
+        year_window = tk.Toplevel(self.root)
+        year_window.title("指定上傳年份資料查閱")
+        year_window.geometry("700x800")
+        year_window.configure(bg='#f8f9fa')
+        
+        # 置中視窗
+        year_window.update_idletasks()
+        x = (year_window.winfo_screenwidth() // 2) - (700 // 2)
+        y = (year_window.winfo_screenheight() // 2) - (800 // 2)
+        year_window.geometry(f"700x800+{x}+{y}")
+        
+        # 標題
+        title_label = tk.Label(year_window, text="特定上傳年份資料查閱",
+                              font=("Microsoft YaHei", 16, "bold"),
+                              bg='#f8f9fa', fg='#2c3e50')
+        title_label.pack(pady=20)
+        
+        # 年份選擇區域
+        select_frame = tk.Frame(year_window, bg='#f8f9fa')
+        select_frame.pack(pady=10)
+        
+        tk.Label(select_frame, text="選擇年份（民國）：",
+                font=("Microsoft YaHei", 12),
+                bg='#f8f9fa').pack(side='left', padx=10)
+        
+        # 生成年份選項
+        current_year = datetime.now().year - 1911
+        year_options = [f"{y}年" for y in range(100, current_year + 1)]
+        year_options.reverse()
+        
+        year_var = tk.StringVar(value=f"{current_year}年")
+        year_combo = ttk.Combobox(select_frame, textvariable=year_var,
+                                 values=year_options, state='readonly',
+                                 font=("Microsoft YaHei", 11), width=15)
+        year_combo.pack(side='left', padx=10)
+        
+        # 查詢按鈕
+        search_btn = tk.Button(select_frame, text="🔍 查詢",
+                              command=lambda: self._search_by_year(year_var.get(), year_window),
+                              bg='#28a745', fg='white',
+                              font=("Microsoft YaHei", 11, "bold"),
+                              width=10, height=1)
+        search_btn.pack(side='left', padx=10)
+        
+        # 結果顯示區域
+        self.year_result_frame = tk.Frame(year_window, bg='#f8f9fa')
+        self.year_result_frame.pack(fill='both', expand=True, padx=20, pady=10)
+    
+    def _search_by_year(self, year_str, parent_window):
+        """根據選擇的年份搜尋資料 - 完全去重版本"""
+        from datetime import datetime
+        
+        year = year_str.replace('年', '').strip()
+        
+        self.year_search_data = []
+        self.current_page = 0
+        self.selected_files = set()
+        
+        # 用字典儲存，key為資料夾路徑，避免重複
+        folder_dict = {}
+        
+        # 取得搜尋路徑
+        search_paths = self.get_search_paths()
+        
+        print(f"\n=== 開始搜尋年份：{year} ===")
+        
+        # 搜尋指定年份的資料夾
+        for search_path in search_paths:
+            if os.path.exists(search_path):
+                print(f"搜尋路徑：{search_path}")
+                for root, dirs, files in os.walk(search_path):
+                    # 取得絕對路徑
+                    abs_root = os.path.abspath(root)
+                    
+                    # 檢查是否為該年份的資料夾
+                    if self._is_year_folder(root, year):
+                        # 如果這個資料夾已經處理過，跳過
+                        if abs_root in folder_dict:
+                            print(f"  跳過重複資料夾：{abs_root}")
+                            continue
+                        
+                        # 收集圖片
+                        images = self._collect_folder_images(root)
+                        if images:
+                            print(f"  找到資料夾：{os.path.basename(root)}，圖片數：{len(images)}")
+                            # 用絕對路徑作為 key，確保不重複
+                            folder_dict[abs_root] = images
+        
+        print(f"找到 {len(folder_dict)} 個不重複的資料夾")
+        
+        # 轉換成列表格式
+        for folder_path, images in folder_dict.items():
+            file_number = self._extract_file_number(images[0])
+            self.year_search_data.append((file_number, images))
+        
+        # 按照建立時間排序（新到舊）
+        self.year_search_data.sort(key=lambda x: self._get_folder_time(x[1][0]), reverse=True)
+        
+        print(f"最終顯示 {len(self.year_search_data)} 筆資料")
+        
+        # 顯示搜尋結果
+        if self.year_search_data:
+            self._create_year_search_page()
+        else:
+            messagebox.showinfo("查詢結果", f"未找到{year}年上傳的資料")
+    
+    def _is_year_folder(self, folder_path, year):
+        """判斷資料夾是否屬於指定年份 - 改進版"""
+        from datetime import datetime
+        try:
+            # 方法1: 檢查資料夾建立時間
+            creation_time = os.path.getctime(folder_path)
+            folder_year = datetime.fromtimestamp(creation_time).year - 1911
+            
+            # 允許±1年的誤差（因為跨年上傳的情況）
+            if abs(folder_year - int(year)) <= 1:
+                return True
+            
+            # 方法2: 檢查資料夾名稱中是否包含年份
+            folder_name = os.path.basename(folder_path)
+            
+            # 檢查資料夾名稱是否以年份開頭
+            if folder_name.startswith(year + '-'):
+                return True
+            
+            # 方法3: 檢查「光碟檢測截圖」子資料夾中的檔案
+            screenshots_folder = os.path.join(folder_path, "光碟檢測截圖")
+            if os.path.exists(screenshots_folder):
+                try:
+                    files = os.listdir(screenshots_folder)
+                    for file in files:
+                        if file.startswith(year + '-'):
+                            return True
+                except:
+                    pass
+                    
+            return False
+        except:
+            return False
+    
+    def _collect_folder_images(self, folder_path):
+        """收集資料夾中的所有圖片及其資訊 - 去重版本"""
+        images = []
+        image_extensions = ('.png', '.jpg', '.jpeg', '.bmp', '.gif')
+        
+        # 用集合追蹤已處理的圖片，避免重複
+        processed_images = set()
+        
+        # 檢查「光碟檢測截圖」子資料夾
+        screenshots_folder = os.path.join(folder_path, "光碟檢測截圖")
+        if os.path.exists(screenshots_folder):
+            search_folder = screenshots_folder
+        else:
+            search_folder = folder_path
+        
+        try:
+            for file in os.listdir(search_folder):
+                if file.lower().endswith(image_extensions):
+                    image_path = os.path.join(search_folder, file)
+                    abs_image_path = os.path.abspath(image_path)
+                    
+                    # 檢查是否已處理過這張圖片
+                    if abs_image_path in processed_images:
+                        continue
+                    
+                    processed_images.add(abs_image_path)
+                    
+                    img_info = self._parse_image_info(image_path, folder_path)
+                    if img_info:
+                        images.append(img_info)
+        except Exception as e:
+            print(f"收集圖片時發生錯誤: {e}")
+        
+        # 按照圖片編號排序
+        images.sort(key=lambda x: x.get('image_num', 0))
+        return images
+    
+    def _parse_image_info(self, image_path, folder_path):
+        """從圖片路徑和檔名解析資訊 - 改進版"""
+        filename = os.path.basename(image_path)
+        
+        # 移除副檔名
+        name_without_ext = filename
+        for ext in ['.png', '.jpg', '.jpeg', '.bmp', '.gif', '.PNG', '.JPG', '.JPEG']:
+            if name_without_ext.endswith(ext):
+                name_without_ext = name_without_ext[:-len(ext)]
+                break
+        
+        # 解析檔名格式
+        parts = name_without_ext.split('-')
+        
+        # 初始化預設值
+        info = {
+            'image_path': image_path,
+            'filename': filename,
+            'folder_path': os.path.dirname(folder_path),
+            'upload_year': '未知',
+            'data_year': '未知',
+            'category': '未知',
+            'case': '未知',
+            'volume': '未知',
+            'item': '未知',
+            'sheet_total': '未知',
+            'sheet_num': '未知',
+            'image_num': 0
+        }
+        
+        # 嘗試從檔名解析（格式：年-年-分類號-案-卷-目-總片數-編號）
+        if len(parts) >= 8:
+            try:
+                info['upload_year'] = parts[0] if parts[0] and parts[0] != '' else '未知'
+                info['data_year'] = parts[1] if parts[1] and parts[1] != '' else '未知'
+                info['category'] = parts[2] if parts[2] and parts[2] != '' else '未知'
+                info['case'] = parts[3] if parts[3] and parts[3] != '' else '未知'
+                info['volume'] = parts[4] if parts[4] and parts[4] != '' else '未知'
+                info['item'] = parts[5] if parts[5] and parts[5] != '' else '未知'
+                info['sheet_total'] = parts[6] if parts[6] and parts[6] != '' else '未知'
+                info['sheet_num'] = parts[7] if parts[7] and parts[7] != '' else '未知'
+                info['image_num'] = int(parts[7]) if parts[7] and parts[7].isdigit() else 0
+            except (ValueError, IndexError):
+                pass
+        
+        # 如果檔名解析失敗，嘗試從資料夾名稱解析
+        if info['category'] == '未知':
+            try:
+                # 取得父資料夾名稱
+                parent_folder = os.path.basename(os.path.dirname(folder_path))
+                folder_parts = parent_folder.split('-')
+                
+                if len(folder_parts) >= 7:
+                    info['upload_year'] = folder_parts[0] if folder_parts[0] else info['upload_year']
+                    info['data_year'] = folder_parts[0] if folder_parts[0] else info['data_year']  # 如果沒有資料年度，使用上傳年度
+                    info['category'] = folder_parts[1] if folder_parts[1] else info['category']
+                    info['case'] = folder_parts[2] if folder_parts[2] else info['case']
+                    info['volume'] = folder_parts[3] if folder_parts[3] else info['volume']
+                    info['item'] = folder_parts[4] if folder_parts[4] else info['item']
+                    info['sheet_total'] = folder_parts[5] if folder_parts[5] else info['sheet_total']
+                    info['sheet_num'] = folder_parts[6] if folder_parts[6] else info['sheet_num']
+            except:
+                pass
+        
+        return info
+    
+    def _extract_file_number(self, img_info):
+        """從圖片資訊中提取檔號 - 改進版"""
+        parts = []
+        
+        # 只加入非「未知」的部分
+        for key in ['category', 'case', 'volume', 'item', 'sheet_total', 'sheet_num']:
+            value = img_info.get(key, '未知')
+            if value and value != '未知':
+                parts.append(value)
+            else:
+                # 如果遇到未知，嘗試使用資料夾名稱
+                parts.append('未知')
+        
+        # 如果所有都是未知，使用檔案名稱
+        if all(p == '未知' for p in parts):
+            return os.path.basename(img_info.get('folder_path', '未知檔案'))
+        
+        return '-'.join(parts)
+    def _get_folder_time(self, img_info):
+        """取得資料夾建立時間"""
+        try:
+            return os.path.getctime(img_info['folder_path'])
+        except:
+            return 0
+    
+    def _create_year_search_page(self):
+        """建立年份搜尋結果的分頁顯示"""
+        for widget in self.year_result_frame.winfo_children():
+            widget.destroy()
+        
+        total_files = len(self.year_search_data)
+        total_pages = (total_files + self.items_per_page - 1) // self.items_per_page
+        
+        if total_files == 0:
+            no_data_label = tk.Label(self.year_result_frame, 
+                                    text="未找到符合條件的資料",
+                                    font=("Microsoft YaHei", 12),
+                                    bg='#f8f9fa', fg='#7f8c8d')
+            no_data_label.pack(pady=50)
+            return
+        
+        year_display = "未知年度"
+        if self.year_search_data and self.year_search_data[0][1]:
+            first_upload_year = self.year_search_data[0][1][0].get('upload_year', '未知')
+            year_display = f"民國 {first_upload_year} 年"
+        
+        # 資訊和控制按鈕
+        info_frame = tk.Frame(self.year_result_frame, bg='#f8f9fa')
+        info_frame.pack(fill='x', pady=(0, 10))
+        
+        info_text = f"{year_display} - 找到 {total_files} 個檔案"
+        info_label = tk.Label(info_frame, text=info_text,
+                            font=("Microsoft YaHei", 11, "bold"),
+                            bg='#f8f9fa', fg='#2c3e50')
+        info_label.pack(side='left')
+        
+        control_frame = tk.Frame(info_frame, bg='#f8f9fa')
+        control_frame.pack(side='right')
+        
+        # 全選按鈕
+        def toggle_select_all():
+            if len(self.selected_files) == total_files:
+                self.selected_files.clear()
+            else:
+                self.selected_files = set(range(total_files))
+            self._create_year_search_page()
+        
+        select_all_text = "□ 全選" if len(self.selected_files) < total_files else "☑ 取消全選"
+        select_btn = tk.Button(control_frame, text=select_all_text,
+                              command=toggle_select_all,
+                              bg='#6c757d', fg='white',
+                              font=("Microsoft YaHei", 10, "bold"),
+                              width=11, height=1)
+        select_btn.pack(side='left', padx=(0, 20))
+        
+        # 另存PDF按鈕
+        def save_selected_as_pdf():
+            if not self.selected_files:
+                messagebox.showwarning("警告", "請先選擇要另存為PDF的資料！")
+                return
+            
+            selected_data = []
+            for i in self.selected_files:
+                if i < len(self.year_search_data):
+                    selected_data.append(self.year_search_data[i])
+            
+            from tkinter import filedialog
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("PDF files", "*.pdf"), ("All files", "*.*")],
+                title="儲存報表為PDF"
+            )
+            if filename:
+                try:
+                    self._save_report_as_pdf(selected_data, year_display, filename)
+                    messagebox.showinfo("成功", f"報表已儲存至：{filename}")
+                except Exception as e:
+                    messagebox.showerror("錯誤", f"儲存PDF失敗：{str(e)}")
+
+        pdf_btn = tk.Button(control_frame, text="💾 另存PDF",
+                            command=save_selected_as_pdf,
+                            bg="#dc3545", fg='white',
+                            font=("Microsoft YaHei", 10, "bold"),
+                            width=11, height=1)
+        pdf_btn.pack(side='right', padx=20)
+
+        # 主內容區域
+        main_content_frame = tk.Frame(self.year_result_frame, bg='#f8f9fa')
+        main_content_frame.pack(fill='both', expand=True, pady=(0, 10))
+        
+        canvas = tk.Canvas(main_content_frame, bg='#f8f9fa')
+        scrollbar = ttk.Scrollbar(main_content_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg='#f8f9fa')
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        def bind_to_mousewheel(widget):
+            widget.bind("<MouseWheel>", _on_mousewheel)
+            for child in widget.winfo_children():
+                bind_to_mousewheel(child)
+        
+        canvas.bind("<MouseWheel>", _on_mousewheel)
+        scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
+        
+        start_idx = self.current_page * self.items_per_page
+        end_idx = min(start_idx + self.items_per_page, total_files)
+        
+        for i in range(start_idx, end_idx):
+            if i < len(self.year_search_data):
+                file_number, images = self.year_search_data[i]
+                self._create_file_display_item_with_checkbox(scrollable_frame, file_number, images, i, i - start_idx)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        bind_to_mousewheel(scrollable_frame)
+        
+        # 分頁控制
+        # 分頁控制框架 - 修改這個部分
+# 分頁控制框架 - 修改這個部分
+        page_control_frame = tk.Frame(self.year_result_frame, bg='#f8f9fa')
+        page_control_frame.pack(fill='x', pady=(10, 0))
+
+        # 上一頁按鈕
+        prev_btn = tk.Button(page_control_frame, text="⬅ 上一頁", 
+                            command=self._prev_page,
+                            bg='#6c757d', fg='white', 
+                            font=("Microsoft YaHei", 11, "bold"),
+                            width=8, height=1,
+                            state='normal' if self.current_page > 0 else 'disabled')
+        prev_btn.pack(side='left', padx=20)
+
+        # 頁碼顯示 - 使用新的置中方法
+        self._create_page_numbers_centered(page_control_frame, total_pages)
+
+        # 下一頁按鈕
+        next_btn = tk.Button(page_control_frame, text="下一頁 ➡", 
+                            command=self._next_page,
+                            bg='#6c757d', fg='white', 
+                            font=("Microsoft YaHei", 11, "bold"),
+                            width=8, height=1,
+                            state='normal' if self.current_page < total_pages - 1 else 'disabled')
+        next_btn.pack(side='right', padx=20)
+        
+    def _create_page_numbers_centered(self, parent, total_pages):
+        """建立置中的頁碼按鈕"""
+        # 創建一個容器框架，使用 place 來置中
+        container = tk.Frame(parent, bg='#f8f9fa')
+        container.place(relx=0.5, rely=0.5, anchor='center')
+        
+        current_page_num = self.current_page + 1
+        max_page_digits = len(str(total_pages))
+        button_width = max(2, max_page_digits)
+        button_font_size = 9
+
+        if total_pages <= 7:
+            start_page = 1
+            end_page = total_pages
+            show_first_ellipsis = False
+            show_last_ellipsis = False
+            show_first_page = False
+            show_last_page = False
+        else:
+            middle_start = max(2, current_page_num - 1)
+            middle_end = min(total_pages - 1, current_page_num + 1)
+            
+            if middle_end - middle_start < 2:
+                if middle_start == 2:
+                    middle_end = min(total_pages - 1, middle_start + 2)
+                else:
+                    middle_start = max(2, middle_end - 2)
+            
+            start_page = middle_start
+            end_page = middle_end
+            show_first_page = True
+            show_last_page = True
+            show_first_ellipsis = start_page > 2
+            show_last_ellipsis = end_page < total_pages - 1
+
+        # 顯示第一頁按鈕
+        if show_first_page:
+            first_btn = tk.Button(container, text="1",
+                                command=lambda: self._go_to_page(0),
+                                bg='#007bff' if current_page_num == 1 else '#ffffff',
+                                fg='white' if current_page_num == 1 else '#495057',
+                                font=("Microsoft YaHei", button_font_size, "bold" if current_page_num == 1 else "normal"),
+                                width=button_width, height=1,
+                                relief='solid', bd=1)
+            first_btn.pack(side='left', padx=1)
+
+        # 顯示第一個省略號
+        if show_first_ellipsis:
+            dots_label = tk.Label(container, text="...",
+                                font=("Microsoft YaHei", button_font_size),
+                                bg='#f8f9fa', fg='#6c757d')
+            dots_label.pack(side='left', padx=2)
+
+        # 顯示中間的頁碼按鈕
+        for page_num in range(start_page, end_page + 1):
+            page_index = page_num - 1
+            
+            if page_index == self.current_page:
+                page_btn = tk.Button(container, text=str(page_num),
+                                    command=lambda p=page_index: self._go_to_page(p),
+                                    bg='#007bff', fg='white',
+                                    font=("Microsoft YaHei", button_font_size, "bold"),
+                                    width=button_width, height=1,
+                                    relief='solid', bd=1)
+            else:
+                page_btn = tk.Button(container, text=str(page_num),
+                                    command=lambda p=page_index: self._go_to_page(p),
+                                    bg='#ffffff', fg='#495057',
+                                    font=("Microsoft YaHei", button_font_size),
+                                    width=button_width, height=1,
+                                    relief='solid', bd=1)
+            
+            page_btn.pack(side='left', padx=1)
+
+        # 顯示最後一個省略號
+        if show_last_ellipsis:
+            dots_label = tk.Label(container, text="...",
+                                font=("Microsoft YaHei", button_font_size),
+                                bg='#f8f9fa', fg='#6c757d')
+            dots_label.pack(side='left', padx=2)
+
+        # 顯示最後一頁按鈕
+        if show_last_page:
+            last_btn = tk.Button(container, text=str(total_pages),
+                                command=lambda: self._go_to_page(total_pages - 1),
+                                bg='#007bff' if current_page_num == total_pages else '#ffffff',
+                                fg='white' if current_page_num == total_pages else '#495057',
+                                font=("Microsoft YaHei", button_font_size, "bold" if current_page_num == total_pages else "normal"),
+                                width=button_width, height=1,
+                                relief='solid', bd=1)
+            last_btn.pack(side='left', padx=1)
+    
+    def _create_file_display_item_with_checkbox(self, parent_frame, file_number, images, global_index, index):
+        """創建帶有勾選框的檔案顯示項目"""
+        display_file_number = file_number
+        if images:
+            first_image = images[0]
+            data_year = first_image.get('data_year', '')
+            if data_year:
+                display_file_number = f"{data_year}-{file_number}"
+        
+        item_frame = tk.LabelFrame(parent_frame, 
+                                text="",
+                                font=("Microsoft YaHei", 12, "bold"),
+                                bg='#ffffff', fg='#2c3e50',
+                                padx=15, pady=10)
+        item_frame.pack(fill='x', expand=False, padx=5, pady=8, ipady=5)
+        
+        title_frame = tk.Frame(item_frame, bg='#ffffff')
+        title_frame.pack(fill='x', pady=(0, 10))
+        
+        checkbox_var = tk.BooleanVar()
+        checkbox_var.set(global_index in self.selected_files)
+        
+        def on_checkbox_change():
+            if checkbox_var.get():
+                self.selected_files.add(global_index)
+            else:
+                self.selected_files.discard(global_index)
+            self._create_year_search_page()
+        
+        checkbox = tk.Checkbutton(title_frame, 
+                                variable=checkbox_var,
+                                command=on_checkbox_change,
+                                bg='#ffffff',
+                                font=("Microsoft YaHei", 12))
+        checkbox.pack(side='left', padx=(0, 10))
+        
+        title_label = tk.Label(title_frame, 
+                            text=f"檔號：{display_file_number}",
+                            font=("Microsoft YaHei", 12, "bold"),
+                            bg='#ffffff', fg='#2c3e50')
+        title_label.pack(side='left')
+        
+        info_frame = tk.Frame(item_frame, bg='#ffffff')
+        info_frame.pack(fill='x', expand=False, pady=(0, 10))
+        
+        if images:
+            first_image = images[0]
+            
+            info_lines = [
+                f"上傳年度：{first_image.get('upload_year', '未知')}    資料年度：{first_image.get('data_year', '未知')}    圖片數量：{len(images)} 張",
+                f"分類號：{first_image.get('category', '未知')}    案：{first_image.get('case', '未知')}    卷：{first_image.get('volume', '未知')}    目：{first_image.get('item', '未知')}    片數：{first_image.get('sheet_num', '未知')} / {first_image.get('sheet_total', '未知')}"
+            ]
+            
+            for line in info_lines:
+                info_label = tk.Label(info_frame, text=line,
+                                    font=("Microsoft YaHei", 10),
+                                    bg='#ffffff', fg='#495057',
+                                    anchor='w')
+                info_label.pack(fill='x', anchor='w', pady=1)
+            
+            button_frame = tk.Frame(item_frame, bg='#ffffff')
+            button_frame.pack(fill='x', pady=(10, 0))
+            
+            folder_path = first_image.get('folder_path', '')
+            if folder_path:
+                open_btn = tk.Button(button_frame, text="📂 開啟資料夾",
+                                    command=lambda: self.open_folder_by_path(folder_path),
+                                    bg='#3498db', fg='white',
+                                    font=("Microsoft YaHei", 10, "bold"),
+                                    width=12, height=1)
+                open_btn.pack(side='left', padx=(0, 15))
+            
+            view_btn = tk.Button(button_frame, text="🖼️ 圖片檢視",
+                                command=lambda imgs=images: self._show_image_viewer(imgs),
+                                bg='#27ae60', fg='white',
+                                font=("Microsoft YaHei", 10, "bold"),
+                                width=12, height=1)
+            view_btn.pack(side='left', padx=15)
+    
+    def _prev_page(self):
+        """上一頁"""
+        if self.current_page > 0:
+            self.current_page -= 1
+            self._create_year_search_page()
+
+    def _next_page(self):
+        """下一頁"""
+        total_pages = (len(self.year_search_data) + self.items_per_page - 1) // self.items_per_page
+        if self.current_page < total_pages - 1:
+            self.current_page += 1
+            self._create_year_search_page()
+
+    def _go_to_page(self, page_index):
+        """跳轉到指定頁"""
+        self.current_page = page_index
+        self._create_year_search_page()
+
+    def _create_page_numbers(self, parent, total_pages):
+        """建立頁碼按鈕"""
+        page_numbers_frame = tk.Frame(parent, bg='#f8f9fa')
+        page_numbers_frame.pack(side='left', padx=20)
+
+        inner_page_frame = tk.Frame(page_numbers_frame, bg='#f8f9fa')
+        inner_page_frame.pack()
+
+        current_page_num = self.current_page + 1
+        max_page_digits = len(str(total_pages))
+        button_width = max(2, max_page_digits)
+        button_font_size = 9
+
+        if total_pages <= 7:
+            start_page = 1
+            end_page = total_pages
+            show_first_ellipsis = False
+            show_last_ellipsis = False
+            show_first_page = False
+            show_last_page = False
+        else:
+            middle_start = max(2, current_page_num - 1)
+            middle_end = min(total_pages - 1, current_page_num + 1)
+            
+            if middle_end - middle_start < 2:
+                if middle_start == 2:
+                    middle_end = min(total_pages - 1, middle_start + 2)
+                else:
+                    middle_start = max(2, middle_end - 2)
+            
+            start_page = middle_start
+            end_page = middle_end
+            show_first_page = True
+            show_last_page = True
+            show_first_ellipsis = start_page > 2
+            show_last_ellipsis = end_page < total_pages - 1
+
+        # 顯示第一頁按鈕
+        if show_first_page:
+            first_btn = tk.Button(inner_page_frame, text="1",
+                                command=lambda: self._go_to_page(0),
+                                bg='#007bff' if current_page_num == 1 else '#ffffff',
+                                fg='white' if current_page_num == 1 else '#495057',
+                                font=("Microsoft YaHei", button_font_size, "bold" if current_page_num == 1 else "normal"),
+                                width=button_width, height=1,
+                                relief='solid', bd=1)
+            first_btn.pack(side='left', padx=1)
+
+        # 顯示第一個省略號
+        if show_first_ellipsis:
+            dots_label = tk.Label(inner_page_frame, text="...",
+                                font=("Microsoft YaHei", button_font_size),
+                                bg='#f8f9fa', fg='#6c757d')
+            dots_label.pack(side='left', padx=2)
+
+        # 顯示中間的頁碼按鈕
+        for page_num in range(start_page, end_page + 1):
+            page_index = page_num - 1
+            
+            if page_index == self.current_page:
+                page_btn = tk.Button(inner_page_frame, text=str(page_num),
+                                    command=lambda p=page_index: self._go_to_page(p),
+                                    bg='#007bff', fg='white',
+                                    font=("Microsoft YaHei", button_font_size, "bold"),
+                                    width=button_width, height=1,
+                                    relief='solid', bd=1)
+            else:
+                page_btn = tk.Button(inner_page_frame, text=str(page_num),
+                                    command=lambda p=page_index: self._go_to_page(p),
+                                    bg='#ffffff', fg='#495057',
+                                    font=("Microsoft YaHei", button_font_size),
+                                    width=button_width, height=1,
+                                    relief='solid', bd=1)
+            
+            page_btn.pack(side='left', padx=1)
+
+        # 顯示最後一個省略號
+        if show_last_ellipsis:
+            dots_label = tk.Label(inner_page_frame, text="...",
+                                font=("Microsoft YaHei", button_font_size),
+                                bg='#f8f9fa', fg='#6c757d')
+            dots_label.pack(side='left', padx=2)
+
+        # 顯示最後一頁按鈕
+        if show_last_page:
+            last_btn = tk.Button(inner_page_frame, text=str(total_pages),
+                                command=lambda: self._go_to_page(total_pages - 1),
+                                bg='#007bff' if current_page_num == total_pages else '#ffffff',
+                                fg='white' if current_page_num == total_pages else '#495057',
+                                font=("Microsoft YaHei", button_font_size, "bold" if current_page_num == total_pages else "normal"),
+                                width=button_width, height=1,
+                                relief='solid', bd=1)
+            last_btn.pack(side='left', padx=1)
+            
+    def _show_image_viewer(self, images):
+        """顯示圖片檢視視窗"""
+        try:
+            from PIL import Image, ImageTk
+        except ImportError:
+            messagebox.showerror("錯誤", "需要安裝 Pillow 套件才能使用圖片檢視功能\n請執行: pip install Pillow")
+            return
+        
+        viewer_window = tk.Toplevel(self.root)
+        viewer_window.title("圖片檢視")
+        viewer_window.geometry("1000x700")
+        viewer_window.configure(bg='#2c3e50')
+        
+        viewer_window.update_idletasks()
+        x = (viewer_window.winfo_screenwidth() // 2) - (1000 // 2)
+        y = (viewer_window.winfo_screenheight() // 2) - (700 // 2)
+        viewer_window.geometry(f"1000x700+{x}+{y}")
+        
+        current_index = [0]
+        
+        def update_image_display():
+            """更新圖片顯示"""
+            for widget in content_frame.winfo_children():
+                widget.destroy()
+            
+            img_info = images[current_index[0]]
+            
+            # 頂部標頭
+            header_frame = tk.Frame(content_frame, bg='#34495e', height=40)
+            header_frame.pack(fill='x')
+            header_frame.pack_propagate(False)
+            
+            header_text = f"檔號：{self._extract_file_number(img_info)} | 第 {current_index[0] + 1} 張 / 共 {len(images)} 張"
+            header_label = tk.Label(header_frame, text=header_text,
+                                   font=("Microsoft YaHei", 11, "bold"),
+                                   bg='#34495e', fg='white')
+            header_label.pack(expand=True)
+            
+            # 主內容區
+            main_frame = tk.Frame(content_frame, bg='#2c3e50')
+            main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+            
+            # 左側圖片
+            image_frame = tk.Frame(main_frame, bg='#34495e', width=600)
+            image_frame.pack(side='left', fill='both', expand=True, padx=(0, 10))
+            
+            try:
+                img = Image.open(img_info['image_path'])
+                img.thumbnail((580, 500), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                
+                img_label = tk.Label(image_frame, image=photo, bg='#34495e')
+                img_label.image = photo
+                img_label.pack(expand=True)
+            except Exception as e:
+                error_label = tk.Label(image_frame, text=f"無法載入圖片\n{str(e)}",
+                                     font=("Microsoft YaHei", 10),
+                                     bg='#34495e', fg='#e74c3c')
+                error_label.pack(expand=True)
+            
+            # 右側資訊
+            info_frame = tk.Frame(main_frame, bg='#34495e', width=300)
+            info_frame.pack(side='right', fill='both', padx=(10, 0))
+            
+            info_title = tk.Label(info_frame, text="圖片資訊",
+                                font=("Microsoft YaHei", 12, "bold"),
+                                bg='#34495e', fg='white', pady=10)
+            info_title.pack(fill='x')
+            
+            info_items = [
+                ("檔案名稱", img_info.get('filename', '未知')),
+                ("上傳年度", img_info.get('upload_year', '未知')),
+                ("資料年度", img_info.get('data_year', '未知')),
+                ("分類號", img_info.get('category', '未知')),
+                ("案", img_info.get('case', '未知')),
+                ("卷", img_info.get('volume', '未知')),
+                ("目", img_info.get('item', '未知')),
+                ("片數", f"{img_info.get('sheet_num', '未知')} / {img_info.get('sheet_total', '未知')}"),
+                ("圖片編號", img_info.get('image_num', '未知'))
+            ]
+            
+            for label, value in info_items:
+                item_frame = tk.Frame(info_frame, bg='#34495e')
+                item_frame.pack(fill='x', padx=10, pady=3)
+                
+                label_widget = tk.Label(item_frame, text=f"{label}：",
+                                      font=("Microsoft YaHei", 9),
+                                      bg='#34495e', fg='#95a5a6',
+                                      anchor='w', width=10)
+                label_widget.pack(side='left')
+                
+                value_widget = tk.Label(item_frame, text=str(value),
+                                      font=("Microsoft YaHei", 10),
+                                      bg='#34495e', fg='white',
+                                      anchor='w')
+                value_widget.pack(side='left', fill='x', expand=True)
+            
+            # 底部資訊
+            bottom_frame = tk.Frame(content_frame, bg='#2c3e50', height=40)
+            bottom_frame.pack(fill='x')
+            bottom_frame.pack_propagate(False)
+            
+            filename = img_info.get('filename', '未知')
+            try:
+                detector = self.get_folder_creator(img_info)
+            except:
+                detector = "未知"
+            
+            bottom_left = tk.Label(bottom_frame, text=f"檔名：{filename}",
+                                 font=("Microsoft YaHei", 9),
+                                 bg='#2c3e50', fg='white', anchor='w')
+            bottom_left.pack(side='left', padx=20)
+            
+            bottom_right = tk.Label(bottom_frame, text=f"檢測人：{detector}",
+                                  font=("Microsoft YaHei", 9),
+                                  bg='#2c3e50', fg='white', anchor='e')
+            bottom_right.pack(side='right', padx=20)
+        
+        content_frame = tk.Frame(viewer_window, bg='#2c3e50')
+        content_frame.pack(fill='both', expand=True)
+        
+        control_frame = tk.Frame(viewer_window, bg='#2c3e50')
+        control_frame.pack(fill='x', pady=10)
+        
+        def prev_image():
+            if current_index[0] > 0:
+                current_index[0] -= 1
+                update_image_display()
+        
+        def next_image():
+            if current_index[0] < len(images) - 1:
+                current_index[0] += 1
+                update_image_display()
+        
+        def first_image():
+            current_index[0] = 0
+            update_image_display()
+        
+        def last_image():
+            current_index[0] = len(images) - 1
+            update_image_display()
+        
+        first_btn = tk.Button(control_frame, text="⏮ 第一張",
+                             command=first_image,
+                             bg='#3498db', fg='white',
+                             font=("Microsoft YaHei", 10, "bold"),
+                             width=10)
+        first_btn.pack(side='left', padx=20)
+        
+        prev_btn = tk.Button(control_frame, text="⬅ 上一張",
+                            command=prev_image,
+                            bg='#27ae60', fg='white',
+                            font=("Microsoft YaHei", 10, "bold"),
+                            width=10)
+        prev_btn.pack(side='left', padx=10)
+        
+        next_btn = tk.Button(control_frame, text="下一張 ➡",
+                            command=next_image,
+                            bg='#27ae60', fg='white',
+                            font=("Microsoft YaHei", 10, "bold"),
+                            width=10)
+        next_btn.pack(side='right', padx=10)
+        
+        last_btn = tk.Button(control_frame, text="最後一張 ⏭",
+                            command=last_image,
+                            bg='#3498db', fg='white',
+                            font=("Microsoft YaHei", 10, "bold"),
+                            width=10)
+        last_btn.pack(side='right', padx=20)
+        
+        close_btn = tk.Button(control_frame, text="❌ 關閉",
+                             command=viewer_window.destroy,
+                             bg='#e74c3c', fg='white',
+                             font=("Microsoft YaHei", 10, "bold"),
+                             width=10)
+        close_btn.pack(side='right', padx=50)
+        
+        update_image_display()
+    
+    def get_folder_creator(self, img_info):
+        """取得資料夾建立者（檢測人）"""
+        try:
+            folder_path = img_info.get('folder_path', '')
+            if folder_path and os.path.exists(folder_path):
+                try:
+                    import win32security
+                    sd = win32security.GetFileSecurity(folder_path, win32security.OWNER_SECURITY_INFORMATION)
+                    owner_sid = sd.GetSecurityDescriptorOwner()
+                    name, domain, type = win32security.LookupAccountSid(None, owner_sid)
+                    return name
+                except:
+                    pass
+        except:
+            pass
+        return "未知"
+    
+    def _save_report_as_pdf(self, selected_data, year_display, filename):
+        """儲存報表為PDF - 雙圖片佈局"""
+        try:
+            try:
+                from reportlab.lib.pagesizes import A4
+                from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage, PageBreak, Table, TableStyle
+                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                from reportlab.lib.units import inch
+                from reportlab.pdfbase import pdfmetrics
+                from reportlab.pdfbase.ttfonts import TTFont
+                from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_RIGHT
+                from reportlab.lib import colors
+            except ImportError:
+                raise Exception("需要安裝 reportlab 套件：pip install reportlab")
+            
+            # 註冊中文字體
+            try:
+                font_path = "C:/Windows/Fonts/msjh.ttc"
+                if os.path.exists(font_path):
+                    pdfmetrics.registerFont(TTFont('ChineseFont', font_path))
+                    font_name = 'ChineseFont'
+                else:
+                    font_name = 'Helvetica'
+            except:
+                font_name = 'Helvetica'
+            
+            # 創建PDF文件
+            doc = SimpleDocTemplate(filename, pagesize=A4, 
+                                topMargin=0.4*inch, bottomMargin=0.25*inch,
+                                leftMargin=0.25*inch, rightMargin=0.25*inch)
+            
+            # 樣式定義
+            title_style = ParagraphStyle(
+                'MainTitle',
+                fontName=font_name,
+                fontSize=14,
+                alignment=TA_CENTER,
+                spaceAfter=15,
+                textColor=colors.HexColor('#2c3e50')
+            )
+            
+            file_header_style = ParagraphStyle(
+                'FileHeader',
+                fontName=font_name,
+                fontSize=10,
+                alignment=TA_CENTER,
+                textColor=colors.white
+            )
+            
+            info_style = ParagraphStyle(
+                'InfoStyle',
+                fontName=font_name,
+                fontSize=7,
+                alignment=TA_LEFT,
+                spaceAfter=1,
+                textColor=colors.HexColor('#34495e')
+            )
+            
+            filename_style = ParagraphStyle(
+                'FilenameStyle',
+                fontName=font_name,
+                fontSize=7,
+                alignment=TA_CENTER,
+                textColor=colors.white
+            )
+            
+            # 建立PDF內容
+            story = []
+            
+            # 主標題
+            story.append(Paragraph(f"上傳資料統整表 - {year_display}", title_style))
+            story.append(Spacer(1, 10))
+            
+            # 處理每個檔案
+            for file_index, (file_number, images) in enumerate(selected_data):
+                if file_index > 0:
+                    story.append(PageBreak())
+                
+                # 取得基本資訊
+                display_file_number = file_number
+                if images:
+                    first_image = images[0]
+                    data_year = first_image.get('data_year', '')
+                    if data_year:
+                        display_file_number = f"{data_year}-{file_number}"
+                
+                detector_name = "未知"
+                if images:
+                    try:
+                        detector_name = self.get_folder_creator(images[0])
+                    except:
+                        detector_name = "未知"
+                
+                # 處理圖片（每頁2張）
+                for i in range(0, len(images), 2):
+                    if i > 0:
+                        story.append(PageBreak())
+                    
+                    # 頂部標頭
+                    page_info = f"檔號：{display_file_number} | 第 {i+1}-{min(i+2, len(images))} 張 / 共 {len(images)} 張"
+                    header_data = [[Paragraph(page_info, file_header_style)]]
+                    
+                    header_table = Table(header_data, colWidths=[8.0*inch])
+                    header_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#34495e')),
+                        ('TOPPADDING', (0, 0), (-1, -1), 4),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                        ('GRID', (0, 0), (-1, -1), 0, colors.white),
+                    ]))
+                    story.append(header_table)
+                    story.append(Spacer(1, 5))
+                    
+                    # 取得當前頁面的圖片（最多2張）
+                    current_images = images[i:i+2]
+                    
+                    # 建立主內容區域
+                    content_rows = []
+                    
+                    # 第一行：圖片
+                    image_row = []
+                    for img_info in current_images:
+                        image_path = img_info.get('image_path', '')
+                        if image_path and os.path.exists(image_path):
+                            try:
+                                img = RLImage(image_path, width=2.4*inch, height=1.8*inch)
+                                image_row.append(img)
+                            except:
+                                error_msg = Paragraph("圖片載入失敗", info_style)
+                                image_row.append(error_msg)
+                        else:
+                            error_msg = Paragraph("圖片不存在", info_style)
+                            image_row.append(error_msg)
+                    
+                    # 如果只有一張圖片，填充空白
+                    if len(image_row) == 1:
+                        image_row.append('')
+                    
+                    content_rows.append(image_row)
+                    content_rows.append([Spacer(1, 4), Spacer(1, 4)])
+                    
+                    # 第二行：圖片資訊
+                    info_row = []
+                    for img_info in current_images:
+                        # 建立資訊文字 - 欄位名稱和數據在同一行
+                        info_lines = [
+                            f"上傳年：{img_info.get('upload_year', '未知')} | 資料年：{img_info.get('data_year', '未知')}",
+                            f"分類：{img_info.get('category', '未知')} | 案：{img_info.get('case', '未知')} | 卷：{img_info.get('volume', '未知')}",
+                            f"目：{img_info.get('item', '未知')} | 片：{img_info.get('sheet_num', '未知')}/{img_info.get('sheet_total', '未知')}",
+                            f"圖片編號：{img_info.get('image_num', '未知')}"
+                        ]
+                        
+                        info_text = "<br/>".join(info_lines)
+                        info_para = Paragraph(info_text, info_style)
+                        
+                        # 建立資訊區域表格
+                        info_cell_data = [[info_para]]
+                        info_cell = Table(info_cell_data, colWidths=[2.4*inch], rowHeights=[1.0*inch])
+                        info_cell.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#ecf0f1')),
+                            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                            ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                            ('TOPPADDING', (0, 0), (-1, -1), 4),
+                            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                            ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#bdc3c7')),
+                        ]))
+                        
+                        info_row.append(info_cell)
+                    
+                    # 如果只有一張圖片，填充空白
+                    if len(info_row) == 1:
+                        info_row.append('')
+                    
+                    content_rows.append(info_row)
+                    content_rows.append([Spacer(1, 4), Spacer(1, 4)])
+                    
+                    # 第三行：檔名
+                    filename_row = []
+                    for img_info in current_images:
+                        filename = img_info.get('filename', '未知')
+                        # 如果檔名太長，只顯示前32個字符
+                        if len(filename) > 35:
+                            filename = filename[:32] + "..."
+                        
+                        filename_para = Paragraph(f"檔名：{filename}", filename_style)
+                        filename_row.append(filename_para)
+                    
+                    if len(filename_row) == 1:
+                        filename_row.append('')
+                    
+                    content_rows.append(filename_row)
+                    
+                    # 建立主內容表格
+                    main_content_table = Table(content_rows, 
+                                            colWidths=[2.5*inch, 2.5*inch],
+                                            rowHeights=[1.9*inch, 0.1*inch, 1.1*inch, 0.1*inch, 0.4*inch])
+                    main_content_table.setStyle(TableStyle([
+                        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                        ('VALIGN', (0, 0), (1, 0), 'MIDDLE'),
+                        ('VALIGN', (0, 2), (1, 2), 'TOP'),
+                        ('VALIGN', (0, 4), (1, 4), 'MIDDLE'),
+                        ('LEFTPADDING', (0, 0), (-1, -1), 3),
+                        ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+                        ('GRID', (0, 0), (-1, -1), 0, colors.white),
+                    ]))
+                    
+                    story.append(main_content_table)
+                    story.append(Spacer(1, 5))
+                    
+                    # 底部區域
+                    bottom_info = f"檢測人：{detector_name} | 頁碼：{i//2 + 1}"
+                    bottom_data = [[Paragraph(bottom_info, ParagraphStyle(
+                        'BottomInfo',
+                        fontName=font_name,
+                        fontSize=9,
+                        alignment=TA_CENTER,
+                        textColor=colors.white
+                    ))]]
+                    
+                    bottom_table = Table(bottom_data, colWidths=[8.0*inch])
+                    bottom_table.setStyle(TableStyle([
+                        ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#2c3e50')),
+                        ('TOPPADDING', (0, 0), (-1, -1), 4),
+                        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+                        ('GRID', (0, 0), (-1, -1), 0, colors.white),
+                    ]))
+                    
+                    story.append(bottom_table)
+
+            # 生成PDF
+            doc.build(story)
+            
+        except Exception as e:
+            raise Exception(f"PDF生成失敗：{str(e)}")
+    
+    # ==================== 年份查閱功能結束 ====================        
+            
+            
 
 def main():
     """主函數 - 加強編碼處理"""
